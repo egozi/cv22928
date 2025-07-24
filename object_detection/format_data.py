@@ -21,7 +21,7 @@ def format_gt(bboxes, classes, target_class_list):
         cls_lower = cls.lower()
         if cls_lower in target_class_list:
             class_index = target_class_list.index(cls_lower)
-            result.append({'bbox': list(map(int, bbox)), 'class': class_index})
+            result.append({'bbox': list(map(int, bbox)), 'class': class_index, 'class_name': cls_lower})
         else:
             raise ValueError(f"Class '{cls}' not found in target class list.")
     return result
