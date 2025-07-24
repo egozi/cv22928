@@ -1,6 +1,32 @@
 import torch
 import numpy as np
 
+
+def format_gt(bboxes, classes, target_class_list):
+    """
+    Convert bounding boxes and class names into a structured format with class indices.
+
+    Args:
+        bboxes (np.ndarray): Array of shape (N, 4) containing bounding boxes.
+        classes (List[str]): List of class names corresponding to each bounding box.
+        target_class_list (List[str]): Ordered list of all possible class names.
+
+    Returns:
+        List[Dict]: A list of dictionaries with keys 'bbox' and 'class'.
+    """
+    target_class_list = [cls.lower() for cls in target_class_list]
+
+    result = []
+    for bbox, cls in zip(bboxes, classes):
+        cls_lower = cls.lower()
+        if cls_lower in target_class_list:
+            class_index = target_class_list.index(cls_lower)
+            result.append({'bbox': list(map(int, bbox)), 'class': class_index})
+        else:
+            raise ValueError(f"Class '{cls}' not found in target class list.")
+    return result
+
+
 def format_model_predictions(model_output, class_names, confidence_threshold=0.0):
     """
     Convert model output to standardized prediction format.
@@ -28,7 +54,7 @@ def format_model_predictions(model_output, class_names, confidence_threshold=0.0
             ...
         ]
     """
-    predictions = []
+    predictions = {} # Use a dictionary to store predictions for each images
     
     # Create mapping from model's class names to our class_names indices
     class_mapping = {}
@@ -45,13 +71,15 @@ def format_model_predictions(model_output, class_names, confidence_threshold=0.0
     if hasattr(model_output, 'pred') and model_output.pred is not None:
         print("📦 Detected YOLO-style output format")
         
+        im_files = model_output.files
+
         # YOLO output structure:
         # model_output.pred = [tensor_for_image1, tensor_for_image2, ...]
         # Each tensor shape: (num_detections, 6) where 6 = [x1, y1, x2, y2, conf, class_id]
         # Normalize target class names to lowercase for matching
         class_names_set = set(name.lower() for name in class_names)    
 
-        for im_detections in model_output.pred:
+        for inx, im_detections in enumerate(model_output.pred):
             image_preds = []
             print(f"   🔍 Found {len(im_detections)} raw detections")
             
@@ -79,7 +107,7 @@ def format_model_predictions(model_output, class_names, confidence_threshold=0.0
                     })
             print(f"   ✅ Kept {len(image_preds)} predictions after confidence filtering")
 
-            predictions.append(image_preds)
+            predictions[im_files[inx]] = image_preds
         
     
     # ==========================================
