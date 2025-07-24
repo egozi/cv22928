@@ -2,29 +2,66 @@ import torch
 import numpy as np
 
 
-def format_gt(bboxes, classes, target_class_list):
+# def format_gt(bboxes, classes, target_class_list):
+#     """
+#     Convert bounding boxes and class names into a structured format with class indices.
+
+#     Args:
+#         bboxes (np.ndarray): Array of shape (N, 4) containing bounding boxes.
+#         classes (List[str]): List of class names corresponding to each bounding box.
+#         target_class_list (List[str]): Ordered list of all possible class names.
+
+#     Returns:
+#         List[Dict]: A list of dictionaries with keys 'bbox' and 'class'.
+#     """
+#     target_class_list = [cls.lower() for cls in target_class_list]
+
+#     result = []
+#     for bbox, cls in zip(bboxes, classes):
+#         cls_lower = cls.lower()
+#         if cls_lower in target_class_list:
+#             class_index = target_class_list.index(cls_lower)
+#             result.append({'bbox': list(map(int, bbox)), 'class': class_index, 'class_name': cls_lower})
+#         else:
+#             raise ValueError(f"Class '{cls}' not found in target class list.")
+#     return result
+
+
+def format_gt(bboxes_list, class_list, target_class_list, image_names=None):
     """
-    Convert bounding boxes and class names into a structured format with class indices.
+    Processes multiple images' bounding boxes and class labels into a structured dict.
 
     Args:
-        bboxes (np.ndarray): Array of shape (N, 4) containing bounding boxes.
-        classes (List[str]): List of class names corresponding to each bounding box.
+        bboxes_list (List[np.ndarray]): List of (N_i, 4) bounding box arrays.
+        class_list (List[List[str]]): List of class name lists per image.
         target_class_list (List[str]): Ordered list of all possible class names.
+        image_names (List[str]): List of image filenames.
 
     Returns:
-        List[Dict]: A list of dictionaries with keys 'bbox' and 'class'.
+        Dict[str, List[Dict]]: Mapping from image name to list of predictions with bbox and class index.
     """
     target_class_list = [cls.lower() for cls in target_class_list]
+    results = {}
 
-    result = []
-    for bbox, cls in zip(bboxes, classes):
-        cls_lower = cls.lower()
-        if cls_lower in target_class_list:
-            class_index = target_class_list.index(cls_lower)
-            result.append({'bbox': list(map(int, bbox)), 'class': class_index, 'class_name': cls_lower})
-        else:
-            raise ValueError(f"Class '{cls}' not found in target class list.")
-    return result
+    if image_names is None:
+        image_names = [f"image{i}.jpg" for i in range(len(bboxes_list))]
+
+    for bboxes, classes, image_name in zip(bboxes_list, class_list, image_names):
+        image_preds = []
+        for bbox, cls in zip(bboxes, classes):
+            cls_lower = cls.lower()
+            if cls_lower in target_class_list:
+                class_index = target_class_list.index(cls_lower)
+                image_preds.append({
+                    'bbox': list(map(int, bbox)),
+                    'class': class_index,
+                    'class_name': cls_lower
+                })
+            else:
+                raise ValueError(f"Class '{cls}' not found in target class list.")
+        results[image_name] = image_preds
+
+    return results
 
 
 def format_model_predictions(model_output, class_names, confidence_threshold=0.0):
@@ -343,3 +380,24 @@ for batch_idx, (images, bbs, classes, image_paths) in enumerate(dataloader):
         
         # Now formatted_predictions is ready for evaluation!
 """
+
+if __name__ == "__main__":
+    # Example usage
+    bboxes_list = [
+        np.array([[88, 26, 232, 110]], dtype=np.uint16),
+        np.array([[70, 24, 178, 74], [179, 34, 255, 69]], dtype=np.uint16),
+        np.array([[40, 38, 95, 101]], dtype=np.uint16),
+        np.array([[73, 33, 255, 170]], dtype=np.uint16)
+    ]
+
+    class_list = [['Bus'], ['Truck', 'Truck'], ['Bus'], ['Bus']]
+    target_classes = ['bus', 'truck']
+    image_names = [
+        '0000599864fd15b3.jpg',
+        '00006bdb1eb5cd74.jpg',
+        '00010bf498b64bab.jpg',
+        '00013f14dd4e168f.jpg'
+    ]
+
+    formatted_multiple_images = format_bboxes_for_multiple_images(bboxes_list, class_list, target_classes, image_names)
+    print("Formatted Multiple Images:", formatted_multiple_images)
