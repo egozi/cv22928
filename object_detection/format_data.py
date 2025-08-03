@@ -64,7 +64,7 @@ def format_gt(bboxes_list, class_list, target_class_list, image_names=None):
     return results
 
 
-def format_model_predictions(model_output, class_names, confidence_threshold=0.0):
+def format_model_predictions(model_output, class_names, confidence_threshold=0.0, verbose=True):
     """
     Convert model output to standardized prediction format.
     
@@ -91,8 +91,8 @@ def format_model_predictions(model_output, class_names, confidence_threshold=0.0
             ...
         ]
     """
-    predictions = {} # Use a dictionary to store predictions for each images
-    
+    predictions = {}  # Use a dictionary to store predictions for each image
+
     # Create mapping from model's class names to our class_names indices
     class_mapping = {}
     for our_idx, our_name in enumerate(class_names):
@@ -106,32 +106,22 @@ def format_model_predictions(model_output, class_names, confidence_threshold=0.0
     # CASE 1: YOLO-style models (YOLOv5, YOLOv8, etc.)
     # ==========================================
     if hasattr(model_output, 'pred') and model_output.pred is not None:
-        print("📦 Detected YOLO-style output format")
-        
+        if verbose:
+            print("📦 Detected YOLO-style output format")
         im_files = model_output.files
-
-        # YOLO output structure:
-        # model_output.pred = [tensor_for_image1, tensor_for_image2, ...]
-        # Each tensor shape: (num_detections, 6) where 6 = [x1, y1, x2, y2, conf, class_id]
-        # Normalize target class names to lowercase for matching
-        class_names_set = set(name.lower() for name in class_names)    
-
+        class_names_set = set(name.lower() for name in class_names)
         for inx, im_detections in enumerate(model_output.pred):
             image_preds = []
-            print(f"   🔍 Found {len(im_detections)} raw detections")
-            
+            if verbose:
+                print(f"   🔍 Found {len(im_detections)} raw detections")
             for detection in im_detections:
-                # Extract the 6 values
                 x1, y1, x2, y2, conf, class_id = detection[:6]
                 class_id = int(class_id)
                 conf = float(conf)
 
                 # Get predicted class name and normalize
                 pred_class_name = model_output.names[class_id].lower()
-
                 if conf >= confidence_threshold and pred_class_name in class_names_set:
-
-                    # Get our class index from the mapping
                     our_class_id = class_mapping.get(class_id, -1)
                     if our_class_id == -1:
                         continue  # skip if mapping not found (shouldn't happen due to earlier check)
@@ -142,57 +132,47 @@ def format_model_predictions(model_output, class_names, confidence_threshold=0.0
                         'class': our_class_id,
                         'class_name': pred_class_name
                     })
-            print(f"   ✅ Kept {len(image_preds)} predictions after confidence filtering")
-
+            if verbose:
+                print(f"   ✅ Kept {len(image_preds)} predictions after confidence filtering")
             predictions[im_files[inx]] = image_preds
-        
-    
+
     # ==========================================
     # CASE 2: Detectron2-style models (Faster R-CNN, etc.)
     # ==========================================
     elif hasattr(model_output, 'instances'):
-        print("📦 Detected Detectron2-style output format")
-        
-        # Detectron2 output structure:
-        # model_output.instances has separate tensors for boxes, scores, classes
-        
+        if verbose:
+            print("📦 Detected Detectron2-style output format")
         instances = model_output.instances
-        
-        # Extract data and move to CPU/numpy
-        boxes = instances.pred_boxes.tensor.cpu().numpy()     # Shape: (N, 4)
-        scores = instances.scores.cpu().numpy()               # Shape: (N,)
-        classes = instances.pred_classes.cpu().numpy()        # Shape: (N,)
-        
-        print(f"   🔍 Found {len(boxes)} raw detections")
-        
+        boxes = instances.pred_boxes.tensor.cpu().numpy()
+        scores = instances.scores.cpu().numpy()
+        classes = instances.pred_classes.cpu().numpy()
+        if verbose:
+            print(f"   🔍 Found {len(boxes)} raw detections")
+        predictions = []
         for i in range(len(boxes)):
             if scores[i] >= confidence_threshold:
                 predictions.append({
-                    'bbox': boxes[i].tolist(),           # Convert numpy to list
+                    'bbox': boxes[i].tolist(),
                     'score': float(scores[i]),
                     'class': int(classes[i]),
                     'class_name': class_names[int(classes[i])]
                 })
-        
-        print(f"   ✅ Kept {len(predictions)} predictions after confidence filtering")
-    
+        if verbose:
+            print(f"   ✅ Kept {len(predictions)} predictions after confidence filtering")
+
     # ==========================================
     # CASE 3: Custom dictionary format
     # ==========================================
     elif isinstance(model_output, dict):
-        print("📦 Detected dictionary-style output format")
-        
-        # Common dictionary keys: 'boxes', 'scores', 'labels'
-        # This is often used by PyTorch's torchvision models
-        
+        if verbose:
+            print("📦 Detected dictionary-style output format")
         if 'boxes' in model_output and 'scores' in model_output and 'labels' in model_output:
-            # Extract tensors
             boxes = model_output['boxes'].cpu().numpy()
             scores = model_output['scores'].cpu().numpy()
             labels = model_output['labels'].cpu().numpy()
-            
-            print(f"   🔍 Found {len(boxes)} raw detections")
-            
+            if verbose:
+                print(f"   🔍 Found {len(boxes)} raw detections")
+            predictions = []
             for i in range(len(boxes)):
                 if scores[i] >= confidence_threshold:
                     predictions.append({
@@ -201,39 +181,29 @@ def format_model_predictions(model_output, class_names, confidence_threshold=0.0
                         'class': int(labels[i]),
                         'class_name': class_names[int(labels[i])]
                     })
-            
-            print(f"   ✅ Kept {len(predictions)} predictions after confidence filtering")
+            if verbose:
+                print(f"   ✅ Kept {len(predictions)} predictions after confidence filtering")
         else:
-            print("   ❌ Dictionary missing required keys: 'boxes', 'scores', 'labels'")
-    
+            if verbose:
+                print("   ❌ Dictionary missing required keys: 'boxes', 'scores', 'labels'")
+
     # ==========================================
     # CASE 4: Raw tensor output
     # ==========================================
     elif isinstance(model_output, torch.Tensor):
-        print("📦 Detected raw tensor output format")
-        
-        # Common tensor formats:
-        # Shape: (batch_size, max_detections, 6) where 6 = [x1, y1, x2, y2, conf, class]
-        # Shape: (batch_size, max_detections, 7) where 7 = [batch_idx, x1, y1, x2, y2, conf, class]
-        
-        print(f"   📏 Tensor shape: {model_output.shape}")
-        
-        # Assume batch_size=1, take first image
-        detections = model_output[0]  # Shape: (max_detections, 6 or 7)
-        
-        print(f"   🔍 Processing {len(detections)} detection slots")
-        
+        if verbose:
+            print("📦 Detected raw tensor output format")
+            print(f"   📏 Tensor shape: {model_output.shape}")
+        detections = model_output[0]
+        if verbose:
+            print(f"   🔍 Processing {len(detections)} detection slots")
+        predictions = []
         for detection in detections:
             if len(detection) >= 6:
-                # Handle both 6-element and 7-element formats
                 if len(detection) == 7:
-                    # Format: [batch_idx, x1, y1, x2, y2, conf, class]
                     _, x1, y1, x2, y2, conf, class_id = detection
                 else:
-                    # Format: [x1, y1, x2, y2, conf, class]
                     x1, y1, x2, y2, conf, class_id = detection[:6]
-                
-                # Filter by confidence and valid class
                 if conf >= confidence_threshold and class_id >= 0:
                     predictions.append({
                         'bbox': [float(x1), float(y1), float(x2), float(y2)],
@@ -241,19 +211,20 @@ def format_model_predictions(model_output, class_names, confidence_threshold=0.0
                         'class': int(class_id),
                         'class_name': class_names[int(class_id)] if int(class_id) < len(class_names) else f'class_{int(class_id)}'
                     })
-        
-        print(f"   ✅ Kept {len(predictions)} valid predictions")
-    
+        if verbose:
+            print(f"   ✅ Kept {len(predictions)} valid predictions")
+
     # ==========================================
     # CASE 5: Unknown format
     # ==========================================
     else:
-        print("❌ Unknown model output format!")
-        print(f"   Type: {type(model_output)}")
-        if hasattr(model_output, '__dict__'):
-            print(f"   Attributes: {list(model_output.__dict__.keys())}")
-        print("   Please adapt the function for your specific model")
-    
+        if verbose:
+            print("❌ Unknown model output format!")
+            print(f"   Type: {type(model_output)}")
+            if hasattr(model_output, '__dict__'):
+                print(f"   Attributes: {list(model_output.__dict__.keys())}")
+            print("   Please adapt the function for your specific model")
+
     return predictions
 
 
