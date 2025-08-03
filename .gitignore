@@ -59,7 +59,6 @@ pythonenv*
 
 # Jupyter Notebook
 .ipynb_checkpoints/
-*.ipynb
 
 # Logs and databases
 *.log
