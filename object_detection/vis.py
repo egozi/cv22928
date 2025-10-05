@@ -8,7 +8,7 @@ from matplotlib.patches import Rectangle, Patch
 from matplotlib import patches, patheffects
 from typing import Dict, List, Tuple, Optional, Union
 from PIL import Image
-
+from matplotlib.collections import LineCollection
 
 
 def visualize_detection_results(image: Union[str, np.ndarray, Image.Image],
@@ -356,6 +356,62 @@ def draw_im(im, bbs, classes, ax=None, figsize=None, title=None, color='white'):
     return ax
 
 
+def show_anchors(im, anchors, class_labels, *, normalized=True,
+                 alpha=0.30, lw=2.0, cmap_name="tab20", ax=None, fontsize=10):
+    """
+    im            : HxWx3 RGB (uint8/float)
+    anchors       : [N,4] (xyxy). If normalized=True, values in [0,1].
+    class_labels  : list/array len==N with label per anchor.
+    normalized    : scale xyxy by image width/height if True.
+    """
+    # prep axes
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7,7))
+    ax.imshow(im)
+    H, W = im.shape[:2]
+    ax.set_xlim(0, W); ax.set_ylim(H, 0); ax.axis('off')
+
+    # anchors → numpy
+    a = anchors
+    if isinstance(a, torch.Tensor): a = a.detach().cpu().numpy()
+    a = np.asarray(a, dtype=float)  # [N,4] xyxy
+
+    # labels → list[str]
+    labels = list(map(str, class_labels))
+    if len(labels) < len(a):  # pad if needed
+        labels += ["bg"] * (len(a) - len(labels))
+
+    # colormap
+    try:
+        cmap = plt.get_cmap(cmap_name)
+    except Exception:
+        cmap = plt.colormaps[cmap_name]
+    ncols = getattr(cmap, "N", 20)
+
+    # scale to pixels if normalized
+    if normalized:
+        a[:, [0, 2]] *= W
+        a[:, [1, 3]] *= H
+
+    for i, (x0, y0, x1, y1) in enumerate(a):
+        w, h = max(0.0, x1 - x0), max(0.0, y1 - y0)
+        color = cmap((i % ncols) / max(ncols - 1, 1))
+
+        # filled rectangle (transparent face, colored edge)
+        rect = Rectangle((x0, y0), w, h,
+                         linewidth=lw, edgecolor=color,
+                         facecolor=(color[0], color[1], color[2], alpha),
+                         zorder=3)
+        ax.add_patch(rect)
+
+        # index + class label
+        ax.text(x0 + 3, y0 + 7, f"{i}: {labels[i]}",
+                fontsize=fontsize, color='w', weight='bold', zorder=4,
+                bbox=dict(facecolor=(color[0], color[1], color[2], 0.6),
+                          edgecolor='none', boxstyle='round,pad=0.2'))
+    return ax
+
+
 def plot_yolo_results(results, 
                       image: Union[str, np.ndarray, Image.Image],
                       class_name: str,
@@ -380,3 +436,13 @@ def plot_yolo_results(results,
     draw_im(image, bbs=detected_boxes_raw, classes=detected_classes_names_raw, color='red', ax=ax)
 
 
+def add_grid(ax, img_shape, cells=(4,4), color='lime', alpha=0.35, lw=1.5):
+    h, w = img_shape[:2]
+    rows, cols = cells
+    xs = [w * i / cols for i in range(1, cols)]
+    ys = [h * j / rows for j in range(1, rows)]
+    segs = [[(x, 0), (x, h)] for x in xs] + [[(0, y), (w, y)] for y in ys]
+    lc = LineCollection(segs, colors=color, linewidths=lw, alpha=alpha, zorder=3)
+    ax.add_collection(lc)
+    ax.set_xlim(0, w)
+    ax.set_ylim(h, 0)  # origin top-left

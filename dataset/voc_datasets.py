@@ -6,6 +6,10 @@ from torch.utils.data.dataloader import default_collate
 from torchvision import transforms
 import cv2
 import numpy as np
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+from sklearn.model_selection import train_test_split
+
 
 class ClassificationDataset(Dataset):
     def __init__(self, df, image_folder, label2idx=None, transform=None):
@@ -59,7 +63,79 @@ class OpenImages(Dataset):
 # dataset = LargestObjectClassificationDataset(largest_object_df, IMAGE_ROOT, transform=transform)
 # dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
 
+mean = [0.485, 0.456, 0.406]  # change if you use different stats
+std = [0.229, 0.224, 0.225]
+
+
 # Now you can use this dataloader in your tools/train.py script for training a ResNet34 classifier.
+def denormalize(image, mean=mean, std=std):
+    image = image.clone().permute(1, 2, 0)  # [C,H,W] → [H,W,C]
+    image = image * torch.tensor(std) + torch.tensor(mean)
+    return image.clamp(0, 1)
+
+
+def split_by_image(df, test_size=0.2, random_state=42):
+    """
+    Split dataframe into train/val ensuring all rows of an ImageID 
+    stay in the same split.
+    
+    Args:
+        df: pandas.DataFrame with an 'ImageID' column
+        test_size: float or int, passed to train_test_split
+        random_state: for reproducibility
+        
+    Returns:
+        df_train, df_val
+    """
+    # get unique images
+    unique_images = df['ImageID'].unique()
+
+    # split on image IDs
+    train_ids, val_ids = train_test_split(
+        unique_images,
+        test_size=test_size,
+        random_state=random_state,
+        shuffle=True
+    )
+
+    # filter original dataframe
+    df_train = df[df['ImageID'].isin(train_ids)].reset_index(drop=True)
+    df_val   = df[df['ImageID'].isin(val_ids)].reset_index(drop=True)
+    return df_train, df_val
+
+
+
+IM_SIZE = 224
+
+def get_train_transforms():
+    return A.Compose([
+        A.HorizontalFlip(p=0.5),
+        A.RandomBrightnessContrast(p=0.2),
+        A.Affine(
+            translate_percent={'x': (-0.05, 0.05), 'y': (-0.05, 0.05)},  # shift_limit=0.05
+            scale=(0.9, 1.1),  # scale_limit=0.1 means ±10%, so 0.9 to 1.1
+            rotate=(-15, 15),  # rotate_limit=15
+            p=0.5
+        ),
+        A.Resize(IM_SIZE, IM_SIZE),
+        A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ToTensorV2()
+    ], bbox_params=A.BboxParams(
+            format='pascal_voc',
+            label_fields=['class_labels'],
+            # --- ADD THIS ---
+            # This ensures boxes are not removed unless less than 10% is visible
+            min_visibility=0.1
+        )
+    )
+
+def get_val_transforms():
+    return A.Compose([
+        A.Resize(IM_SIZE, IM_SIZE),
+        A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ToTensorV2()
+    ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels']))
+
 
 # create a custom dataset
 class ObjDetDataset(Dataset):
