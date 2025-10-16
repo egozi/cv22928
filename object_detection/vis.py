@@ -9,6 +9,7 @@ from matplotlib import patches, patheffects
 from typing import Dict, List, Tuple, Optional, Union
 from PIL import Image
 from matplotlib.collections import LineCollection
+import torch
 
 
 def visualize_detection_results(image: Union[str, np.ndarray, Image.Image],
